@@ -1,0 +1,138 @@
+---
+title: "Data Generation for default models in MF-2dFDR"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r sourcing file, message=FALSE, warning=FALSE}
+rm(list = ls())
+source("~/Desktop/code_paper/final_fun.R")
+
+```
+
+Arguments of the function generate()
+
+- n: the sample size \
+- m: the number of hypotheses \
+- confounding, s.strength, s.density: can be either of "weak", "medium" and "strong" \
+- response: can be either "continuous", "poisson", "binary" or "nb" \
+- covariate: can be either "binary" or "continuous" \
+- confounder: can be either "binary" or "continuous" \
+```{r generate function, echo=TRUE, message=FALSE, warning=FALSE}
+logit = function(x) exp(x)/ (1 + exp(x))
+generate = function(n, m, delta = 0.2, confounding, s.strength,
+                    s.density, response, covariate, confounder, intercept = 1)
+{
+  if (confounding == "weak") {
+    rho = 0.1
+  }
+  if (confounding == "moderate"){
+    rho = 1
+  }
+  if (confounding == "strong"){
+    rho = 1.5
+  }
+  
+  ##Describing strength of signal
+  if (s.strength == "weak") {
+    l = 0.3
+  }
+  if (s.strength == "moderate") {
+    l = 0.4
+  }
+  if (s.strength == "strong") {
+    l = 0.5
+  }
+  
+  ##Describing density of signal
+  if(s.density == "weak"){
+    p = 0.1
+  }
+  if(s.density == "moderate"){
+    p = 0.2
+  }
+  if(s.density == "strong"){
+    p = 0.3
+  }
+  r <- runif(m)
+  alpha <- if_else(r < (1- p), 0, 
+                   if_else(r < (1- p/2), runif(m, -l-delta, -l), runif(m, l,l+delta))
+  )
+  r <- runif(m)
+  beta <- if_else(r < (1- p), 0, 
+                  if_else(r < (1- p/2), runif(m, -l-delta, -l), runif(m, l,l+delta))
+  )
+  tp <- abs(alpha) > 0  
+  tn <- alpha == 0 
+  ## Generate X,Z
+  if (confounder == "continuous"){
+    Z <- rnorm(n)
+  
+  }else if(confounder == "binary"){
+    Z = rbinom(n, 1, 0.7)
+  }else{
+    stop(print("Outside the scope of the default model"))
+  }
+  
+  if(covariate == "binary"){
+    
+   prob = exp(rho * Z)/(1 + exp(rho * Z))
+   X <- rbinom(n, 1, prob)
+  }else if(covariate == "continuous"){
+    X = rnorm(n, mean = rho*(Z))
+
+  }else{
+    stop(print("Outside the scope of the Default model"))
+  }
+  
+  
+  ##Generate Y
+  Y = matrix(nrow = m ,ncol = n)
+  if(response == "continuous"){
+    for(j in 1:m)  
+    {
+      Y[j,] <- intercept+ alpha[j]*scale(X) + beta[j]*Z + rnorm(n)
+      
+    }
+  }else if(response == "poisson"){
+    for(j in 1:m)
+    {
+      prob = exp(intercept + alpha[j]* scale(X)+ beta[j]*Z)
+      Y[j,] = rpois(n, prob)
+    }
+  }else if(response == "nb"){
+    for(j in 1:m)
+    {
+      
+      Y[j,] = rnbinom(n, size = 3, mu = exp(1 + alpha[j]* scale(X)+ beta[j]*Z))
+    }
+  }else if(response == "binary"){
+    for(j in 1:m)
+    {
+      prob = sapply(intercept + alpha[j]* scale(X)+ beta[j]*Z, logit) 
+      Y[j,] = rbinom(n, 1, prob)
+    }
+    
+  }else(stop(print("outside the scope of the default model")))
+  
+  
+  return(list(X = X, Y = Y, Z = Z))
+  
+}
+```
+```{r echo=TRUE}
+data = generate(100, 1000, delta = 0.2, confounding = "weak", 
+         s.strength = "moderate", s.density = "strong", 
+         response = "poisson", covariate = "binary",
+         confounder = "continuous",intercept = 1)
+```
+
+```{r}
+obj = tdfdr.np(as.factor(data$X), data$Y, data$Z, method = "MS", response = "nb", covariate = "binary", link = "log" )
+pos = obj$rejections
+sum(pos)
+```
+
